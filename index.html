@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archive File Manager</title>
+  <link rel="stylesheet" href="bulma/css/bulma.css">
+  <link rel="stylesheet" href="fontawesome/css/all.min.css">
+  <style>
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .table td,
+    .table th {
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    .table.is-compact td,
+    .table.is-compact th {
+      padding: 4px 6px;
+      font-size: 0.8rem;
+    }
+
+    .is-selected-row {
+      background-color: rgba(0, 209, 178, 0.18) !important;
+    }
+
+    .is-disabled-row {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+
+    .is-word-break {
+      word-break: break-all;
+      white-space: normal;
+    }
+
+    .font-monospace {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(150, 150, 150, 0.4) transparent;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent !important;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(150, 150, 150, 0.4);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(150, 150, 150, 0.7);
+    }
+
+    ::-webkit-scrollbar-corner {
+      background: transparent !important;
+    }
+
+    .bulma-badge-dark {
+      display: none;
+    }
+
+    .bulma-badge-light {
+      display: block;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .bulma-badge-dark {
+        display: block;
+      }
+      :root:not([data-theme="light"]) .bulma-badge-light {
+        display: none;
+      }
+    }
+
+    :root[data-theme="dark"] .bulma-badge-dark {
+      display: block;
+    }
+
+    :root[data-theme="dark"] .bulma-badge-light {
+      display: none;
+    }
+
+    :root[data-theme="light"] .bulma-badge-dark {
+      display: none;
+    }
+
+    :root[data-theme="light"] .bulma-badge-light {
+      display: block;
+    }
+
+    tr[draggable="true"] {
+      cursor: grab;
+    }
+
+    tr[draggable="true"]:active {
+      cursor: grabbing;
+    }
+  </style>
+</head>
+
+<body class="is-flex is-flex-direction-column" style="height: 100vh;">
+
+  <div id="dragDropOverlay"
+    style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 9999; align-items: center; justify-content: center; pointer-events: none;">
+    <div
+      style="border: 3px dashed var(--bulma-primary, #00d1b2); border-radius: 16px; padding: 3rem 4rem; text-align: center; background: rgba(0,209,178,0.06);">
+      <span class="icon is-large has-text-primary mb-3"><i class="fa-solid fa-cloud-arrow-up fa-3x"></i></span>
+      <h2 class="title is-4 mb-2">Drop Files to Upload</h2>
+      <p class="subtitle is-6">Uploading to: <strong class="has-text-primary font-monospace"
+          id="overlayTargetPath">/</strong></p>
+    </div>
+  </div>
+
+  <input type="file" id="globalBatchFileInput" multiple style="display: none;"
+    onchange="handleBatchFilesSelected(this.files)">
+  <input type="file" id="globalFolderFileInput" webkitdirectory directory multiple style="display: none;"
+    onchange="handleFolderFilesSelected(this.files)">
+  <input type="file" id="globalReplaceFileInput" style="display: none;"
+    onchange="handleReplaceFileSelected(this.files)">
+
+  <nav class="navbar has-shadow px-3" role="navigation" aria-label="main navigation"
+    style="flex-shrink: 0; min-height: 3.25rem;">
+    <div class="navbar-brand">
+      <a class="navbar-item" href="index.html">
+        <span class="icon mr-2 has-text-primary"><i class="fa-brands fa-internet-archive fa-lg"></i></span>
+        <span class="has-text-weight-bold">Archive File Manager</span>
+      </a>
+      <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarExplorerMenu"
+        onclick="toggleNavbarMenu()">
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+      </a>
+    </div>
+
+    <div id="navbarExplorerMenu" class="navbar-menu">
+      <div class="navbar-start">
+        <div class="navbar-item">
+          <div class="field has-addons mb-0">
+            <div class="control has-icons-left">
+              <div class="select is-small">
+                <select id="selectItemIdentifier" onchange="onIdentifierSelect(this.value)"
+                  style="min-width: 200px; max-width: 320px;">
+                  <option value="" disabled selected hidden>Select Identifier...</option>
+                </select>
+              </div>
+              <span class="icon is-small is-left"><i class="fa-solid fa-box-archive"></i></span>
+            </div>
+            <div class="control">
+              <button class="button is-small is-light" id="btnRefreshBuckets" onclick="fetchUserBuckets()"
+                title="Refresh Identifiers">
+                <span class="icon is-small"><i class="fa-solid fa-rotate"></i></span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="navbar-item">
+          <button class="button is-small is-light" id="btnCatalogTasksStatus" onclick="openCatalogTasksModal()"
+            title="View Internet Archive Tasks">
+            <span class="icon is-small has-text-success mr-1" id="iconTasksStatus"><i
+                class="fa-solid fa-circle-check"></i></span>
+            <span id="labelTasksStatus">Tasks</span>
+          </button>
+        </div>
+
+        <div class="navbar-item">
+          <button class="button is-small is-light" id="btnS3Status" onclick="openSettingsModal()"
+            title="Internet Archive S3 Connection Status - Click to Configure">
+            <span class="icon is-small mr-1" id="iconS3Status"><i class="fa-solid fa-circle-notch fa-spin"></i></span>
+            <span id="labelS3Status">Checking...</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="navbar-end">
+        <div class="navbar-item py-0 mr-1" id="bulmaBadgeContainer">
+          <a href="https://bulma.io" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center;">
+            <img class="bulma-badge-light" src="bulma/made-with-bulma--semiblack.png" alt="Made with Bulma" style="height: 24px; width: auto;">
+            <img class="bulma-badge-dark" src="bulma/made-with-bulma--semiwhite.png" alt="Made with Bulma" style="height: 24px; width: auto;">
+          </a>
+        </div>
+        <div class="navbar-item">
+          <div class="tags has-addons mb-0 mr-2" id="statViewsTag" title="Internet Archive Item Views">
+            <span class="tag is-small"><i class="fa-solid fa-eye mr-1"></i> Views</span>
+            <span class="tag is-small is-primary is-light" id="statViewsCount">--</span>
+          </div>
+          <div class="tags has-addons mb-0 mr-2">
+            <span class="tag is-small">Files</span>
+            <span class="tag is-small is-info is-light" id="statFilesCount">0</span>
+          </div>
+          <div class="tags has-addons mb-0">
+            <span class="tag is-small">Total</span>
+            <span class="tag is-small is-primary is-light" id="statTotalSize">0 B</span>
+          </div>
+          <button class="button is-small is-light" id="btnToggleFullscreen" onclick="toggleFullscreen()"
+            title="Toggle Fullscreen">
+            <span class="icon is-small" id="iconFullscreen"><i class="fa-solid fa-expand"></i></span>
+          </button>
+        </div>
+
+        <div class="navbar-item">
+          <div class="buttons are-small mb-0">
+            <button class="button is-light" id="btnOpenSettings" onclick="openSettingsModal()"
+              title="Configure S3 Access & Secret Keys">
+              <span class="icon is-small"><i class="fa-solid fa-key"></i></span>
+              <span>S3 Keys</span>
+            </button>
+            <button class="button is-light" id="btnToggleTheme" onclick="toggleTheme()" title="Toggle Dark/Light Theme">
+              <span class="icon is-small"><i class="fa-solid fa-circle-half-stroke"></i></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="px-3 pt-2 pb-1" style="flex-shrink: 0; border-bottom: 1px solid var(--bulma-border, #dbdbdb);">
+    <div class="level is-mobile mb-2">
+      <div class="level-left is-flex-shrink-1" style="min-width: 0;">
+        <nav class="breadcrumb is-small mb-0" aria-label="breadcrumbs" style="overflow-x: auto; white-space: nowrap;">
+          <ul id="breadcrumbList">
+            <li><a onclick="navigateToPath('')"><i class="fa-solid fa-house mr-1"></i> root</a></li>
+          </ul>
+        </nav>
+      </div>
+
+      <div class="level-item" style="flex: 1; max-width: 480px; margin: 0 1rem;">
+        <div class="control has-icons-left is-expanded" style="width: 100%;">
+          <input class="input is-small is-rounded font-monospace" id="fileSearchInput" type="text"
+            placeholder="Search files in current folder..." oninput="onFilterChange()">
+          <span class="icon is-small is-left"><i class="fa-solid fa-magnifying-glass"></i></span>
+        </div>
+      </div>
+
+      <div class="level-right is-flex-shrink-0">
+        <div class="buttons has-addons are-small mb-0">
+          <button class="button is-primary is-selected" id="filterBtnAll" onclick="setSourceFilter('all')">All</button>
+          <button class="button is-light" id="filterBtnOrig" onclick="setSourceFilter('original')">Original</button>
+          <button class="button is-light" id="filterBtnDeriv"
+            onclick="setSourceFilter('derivative')">Derivative</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="level is-mobile mb-1">
+      <div class="level-left">
+        <div class="buttons are-small mb-0">
+          <button class="button is-primary has-text-weight-bold" onclick="openUploadModal()">
+            <span class="icon is-small"><i class="fa-solid fa-cloud-arrow-up"></i></span>
+            <span>Upload</span>
+          </button>
+          <button class="button is-light" onclick="openNewFolderModal()">
+            <span class="icon is-small"><i class="fa-solid fa-folder-plus"></i></span>
+            <span>New Folder</span>
+          </button>
+          <button class="button is-danger is-light" id="btnBatchDelete" onclick="openBatchDeleteModal()" disabled>
+            <span class="icon is-small"><i class="fa-solid fa-trash"></i></span>
+            <span>Delete (<span class="selected-count">0</span>)</span>
+          </button>
+          <button class="button is-info is-light" id="btnBatchMove" onclick="openBatchMoveModal()" disabled>
+            <span class="icon is-small"><i class="fa-solid fa-arrows-turn-right"></i></span>
+            <span>Move (<span class="selected-count">0</span>)</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="level-right">
+        <div class="is-flex is-align-items-center">
+          <div class="is-flex is-align-items-center mr-2 px-2 py-1"
+            style="border: 1px solid var(--bulma-border, #dbdbdb); border-radius: 4px; height: 27px;">
+            <span class="icon is-small has-text-grey mr-1" title="Table Scale (100% - 200%)"><i
+                class="fa-solid fa-magnifying-glass-plus"></i></span>
+            <input type="range" id="inputTableZoom" min="100" max="200" value="100" step="5"
+              oninput="applyTableScale(this.value)" style="width: 80px; height: 14px; cursor: pointer;">
+            <span class="is-size-7 font-monospace ml-1 has-text-weight-semibold" id="labelTableZoom">100%</span>
+          </div>
+          <div class="buttons are-small mb-0">
+            <button class="button is-light" onclick="refreshCurrentFolder()" title="Refresh file list">
+              <span class="icon is-small"><i class="fa-solid fa-rotate-right"></i></span>
+              <span>Refresh</span>
+            </button>
+            <button class="button is-primary is-light" id="btnTogglePreview" onclick="togglePreviewPane()"
+              title="Toggle Details & Preview Panel">
+              <span class="icon is-small"><i class="fa-solid fa-table-columns"></i></span>
+              <span>Preview</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="is-flex is-flex-grow-1 px-3 py-2" style="min-height: 0; overflow: hidden;">
+    <div class="is-flex-grow-1 is-flex is-flex-direction-column" style="min-width: 0; height: 100%;">
+      <div
+        style="flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; border: 1px solid var(--bulma-border, #dbdbdb); border-radius: 4px;">
+        <table class="table is-striped is-hoverable is-fullwidth is-narrow is-compact" id="fileListTable"
+          style="margin-bottom: 0;">
+          <thead>
+            <tr>
+              <th style="width: 32px;" class="has-text-centered">
+                <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)">
+              </th>
+              <th style="width: 28px;"></th>
+              <th onclick="sortTable('name')" style="cursor: pointer;">Name <span id="sortIconName"></span></th>
+              <th onclick="sortTable('size')" style="width: 90px; cursor: pointer;">Size <span id="sortIconSize"></span>
+              </th>
+              <th style="width: 80px;">Source</th>
+              <th style="width: 80px;">Format</th>
+              <th onclick="sortTable('mtime')" style="width: 140px; cursor: pointer;">Modified <span
+                  id="sortIconMtime"></span></th>
+              <th style="width: 110px;" class="has-text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="fileListTbody">
+            <tr>
+              <td colspan="8" class="has-text-centered p-5 has-text-grey">
+                <span class="icon is-large mb-2"><i class="fa-solid fa-box-open fa-2x"></i></span>
+                <div>Select an identifier from the dropdown above to load files.</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="level is-mobile mt-1 px-1 is-size-7 has-text-grey" style="flex-shrink: 0; min-height: 20px;">
+        <div class="level-left">
+          <span id="statusItemSummary">Showing 0 items</span>
+        </div>
+        <div class="level-right">
+          <span>Drag &amp; drop files anywhere to upload &bull; Click row to preview</span>
+        </div>
+      </div>
+    </div>
+
+    <aside class="card ml-2 is-flex-shrink-0" id="previewPane"
+      style="width: 340px; max-width: 380px; height: 100%; display: flex; flex-direction: column; overflow-y: auto;">
+      <div class="card-content p-3" style="flex: 1; display: flex; flex-direction: column;">
+        <div class="level is-mobile mb-2">
+          <div class="level-left">
+            <h4 class="title is-6 mb-0 has-text-weight-bold"><i class="fa-solid fa-circle-info mr-1"></i> File Preview
+            </h4>
+          </div>
+          <div class="level-right">
+            <button class="delete is-small" onclick="togglePreviewPane()"></button>
+          </div>
+        </div>
+
+        <div id="previewContentArea" class="mb-2 has-text-centered"
+          style="min-height: 140px; background: var(--bulma-scheme-main-bis, rgba(128,128,128,0.1)); border-radius: 4px; padding: 0.4rem; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+          <div class="has-text-grey is-size-7">Select a file to inspect details and preview</div>
+        </div>
+
+        <div id="previewMetadataList" class="content is-size-7 mb-2" style="flex: 1; overflow-y: auto;">
+          <table class="table is-narrow is-fullwidth mb-0">
+            <tbody>
+              <tr>
+                <td style="width: 60px;"><strong>Name:</strong></td>
+                <td id="metaName" class="font-monospace is-word-break">-</td>
+              </tr>
+              <tr>
+                <td><strong>Path:</strong></td>
+                <td id="metaPath" class="font-monospace is-word-break">-</td>
+              </tr>
+              <tr>
+                <td><strong>Size:</strong></td>
+                <td id="metaSize">-</td>
+              </tr>
+              <tr>
+                <td><strong>Source:</strong></td>
+                <td id="metaSource">-</td>
+              </tr>
+              <tr>
+                <td><strong>Format:</strong></td>
+                <td id="metaFormat">-</td>
+              </tr>
+              <tr>
+                <td><strong>MD5:</strong></td>
+                <td id="metaMd5" class="font-monospace is-word-break">-</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="buttons are-small is-flex is-flex-direction-column mb-0" id="previewActionButtons"
+          style="gap: 4px;">
+          <a class="button is-primary is-fullwidth" id="btnDownloadPreview" href="#" target="_blank" download>
+            <span class="icon is-small"><i class="fa-solid fa-download"></i></span>
+            <span>Direct Download</span>
+          </a>
+          <button class="button is-warning is-light is-fullwidth" id="btnReplacePreview"
+            onclick="triggerReplaceFilePicker()">
+            <span class="icon is-small"><i class="fa-solid fa-arrows-rotate"></i></span>
+            <span>Replace File</span>
+          </button>
+          <button class="button is-light is-fullwidth" id="btnMovePreview" onclick="promptMoveSelected()">
+            <span class="icon is-small"><i class="fa-solid fa-arrows-turn-right"></i></span>
+            <span>Move File</span>
+          </button>
+          <button class="button is-danger is-light is-fullwidth" id="btnDeletePreview" onclick="promptDeleteSelected()">
+            <span class="icon is-small"><i class="fa-solid fa-trash"></i></span>
+            <span>Delete File</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="card" id="uploadTray"
+    style="display: none; position: fixed; bottom: 20px; right: 20px; width: 420px; max-width: calc(100vw - 40px); z-index: 1000; box-shadow: 0 10px 30px rgba(0,0,0,0.4);">
+    <header class="card-header p-2 is-align-items-center">
+      <p class="card-header-title is-size-7 p-0 mb-0">
+        <i class="fa-solid fa-cloud-arrow-up mr-2 has-text-primary"></i> Upload Manager (<span
+          id="trayCompletedCount">0</span>/<span id="trayTotalCount">0</span>)
+      </p>
+      <button class="button is-small is-ghost p-1" onclick="toggleUploadTrayMinimize()" title="Minimize / Expand">
+        <i class="fa-solid fa-minus" id="iconTrayMinMax"></i>
+      </button>
+      <button class="button is-small is-ghost p-1 has-text-danger" onclick="cancelAllActiveUploads()"
+        title="Cancel All">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </header>
+
+    <div class="card-content p-3" id="uploadTrayBody">
+      <div class="mb-2">
+        <div class="level is-mobile is-size-7 mb-1">
+          <div class="level-left">
+            <span id="traySpeedAndEta">Speed: 0 KB/s &bull; ETA: --</span>
+          </div>
+          <div class="level-right">
+            <span id="trayBytesProgress">0 B / 0 B</span>
+          </div>
+        </div>
+        <progress class="progress is-primary is-small mb-0" id="trayOverallProgress" value="0" max="100">0%</progress>
+      </div>
+      <div class="upload-tray-list" id="uploadTrayFileList" style="max-height: 220px; overflow-y: auto;"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="modalUpload">
+    <div class="modal-background" onclick="closeModal('modalUpload')"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title is-size-6"><i class="fa-solid fa-cloud-arrow-up mr-2 has-text-primary"></i> Upload to
+          Internet Archive S3</p>
+        <button class="delete" aria-label="close" onclick="closeModal('modalUpload')"></button>
+      </header>
+      <section class="modal-card-body">
+        <p class="mb-3 is-size-7">Target Directory: <strong class="has-text-primary font-monospace"
+            id="uploadModalTargetPath">/</strong></p>
+        <div class="box p-5 has-text-centered mb-3" id="uploadModalDropZone"
+          style="border: 2px dashed var(--bulma-primary, #00d1b2); cursor: pointer; background: var(--bulma-scheme-main-bis, rgba(0,209,178,0.04));">
+          <span class="icon is-large has-text-primary mb-2"><i class="fa-solid fa-cloud-arrow-up fa-2x"></i></span>
+          <p class="has-text-weight-bold mb-1">Drag &amp; drop files or folders here</p>
+          <p class="is-size-7 has-text-grey mb-4">or choose from your computer</p>
+          <div class="buttons is-centered are-small">
+            <button class="button is-primary has-text-weight-bold mr-2" onclick="triggerBatchUploadPicker()">
+              <span class="icon is-small"><i class="fa-solid fa-file"></i></span>
+              <span>Select Files</span>
+            </button>
+            <button class="button is-info is-light" onclick="triggerFolderUploadPicker()">
+              <span class="icon is-small"><i class="fa-solid fa-folder-open"></i></span>
+              <span>Select Folder</span>
+            </button>
+          </div>
+        </div>
+        <p class="help has-text-grey"><i class="fa-solid fa-circle-info mr-1"></i> Selecting a folder will automatically
+          preserve its subfolder structure on Internet Archive S3.</p>
+      </section>
+      <footer class="modal-card-foot" style="gap: 0.75rem;">
+        <button class="button" onclick="closeModal('modalUpload')">Close</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="modal" id="modalNewFolder">
+    <div class="modal-background" onclick="closeModal('modalNewFolder')"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title is-size-6"><i class="fa-solid fa-folder-plus mr-2 has-text-primary"></i> Create New
+          Folder</p>
+        <button class="delete" aria-label="close" onclick="closeModal('modalNewFolder')"></button>
+      </header>
+      <section class="modal-card-body">
+        <div class="notification is-info is-light is-size-7 p-3 mb-3">
+          <i class="fa-solid fa-circle-info mr-1"></i>
+          <strong>Notice:</strong> Internet Archive S3 does not support empty folders. A folder exists once a file is
+          uploaded or moved into it.
+        </div>
+        <div class="field mb-3">
+          <label class="label is-small">Target Folder Name:</label>
+          <div class="control has-icons-left">
+            <input class="input is-small font-monospace" id="inputNewFolderName" type="text"
+              placeholder="e.g. movies or images" onkeydown="if(event.key==='Enter')submitNewFolder('upload')">
+            <span class="icon is-small is-left"><i class="fa-solid fa-folder"></i></span>
+          </div>
+          <p class="help">Parent Location: <span class="font-monospace" id="newFolderParentPath">/</span></p>
+        </div>
+      </section>
+      <footer class="modal-card-foot" style="gap: 0.75rem;">
+        <button class="button is-primary has-text-weight-bold mr-2" onclick="submitNewFolder('upload')">
+          <span class="icon is-small"><i class="fa-solid fa-cloud-arrow-up"></i></span>
+          <span>Create &amp; Upload</span>
+        </button>
+        <button class="button is-info is-light mr-2" onclick="submitNewFolder('move')">
+          <span class="icon is-small"><i class="fa-solid fa-arrows-turn-right"></i></span>
+          <span>Create &amp; Move</span>
+        </button>
+        <button class="button" onclick="closeModal('modalNewFolder')">Cancel</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="modal" id="modalBatchDelete">
+    <div class="modal-background" onclick="closeModal('modalBatchDelete')"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title is-size-6"><i class="fa-solid fa-trash mr-2 has-text-danger"></i> Batch Delete Files
+        </p>
+        <button class="delete" aria-label="close" onclick="closeModal('modalBatchDelete')"></button>
+      </header>
+      <section class="modal-card-body">
+        <p class="mb-3">Are you sure you want to delete the following <strong id="deleteFilesCount">0</strong> file(s)
+          from Internet Archive S3?</p>
+        <div class="box p-2 mb-3" style="max-height: 180px; overflow-y: auto;">
+          <ul class="is-size-7 font-monospace" id="deleteFileList"></ul>
+        </div>
+        <div class="field">
+          <label class="checkbox">
+            <input type="checkbox" id="checkboxCascadeDelete" checked>
+            <strong>Cascade Delete:</strong> Also remove automatically generated derivatives (<code
+              class="is-size-7">x-archive-cascade-delete</code>)
+          </label>
+        </div>
+        <div id="batchDeleteProgressArea" class="mt-3" style="display: none;">
+          <p class="is-size-7 has-text-grey mb-1" id="labelBatchDeleteStatus">Deleting...</p>
+          <progress class="progress is-danger is-small" id="progressBatchDelete" value="0" max="100"></progress>
+        </div>
+      </section>
+      <footer class="modal-card-foot" style="gap: 0.75rem;">
+        <button class="button is-danger has-text-weight-bold mr-2" id="btnConfirmBatchDelete"
+          onclick="executeBatchDelete()">Delete Files</button>
+        <button class="button" onclick="closeModal('modalBatchDelete')">Cancel</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="modal" id="modalBatchMove">
+    <div class="modal-background" onclick="closeModal('modalBatchMove')"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title is-size-6"><i class="fa-solid fa-arrows-turn-right mr-2 has-text-info"></i> Move Files</p>
+        <button class="delete" aria-label="close" onclick="closeModal('modalBatchMove')"></button>
+      </header>
+      <section class="modal-card-body">
+        <p class="mb-2">Moving <strong id="moveFilesCount">0</strong> file(s):</p>
+        <div class="box p-2 mb-3" style="max-height: 140px; overflow-y: auto;">
+          <ul class="is-size-7 font-monospace" id="moveFileList"></ul>
+        </div>
+
+        <div class="field mb-2">
+          <label class="label is-small"><i class="fa-solid fa-folder-tree mr-1 has-text-info"></i> Select Existing
+            Folder:</label>
+          <div class="control has-icons-left">
+            <div class="select is-small is-fullwidth">
+              <select id="selectAvailableFolders" onchange="onSelectMoveFolder(this.value)">
+                <option value="">/ (Root Directory)</option>
+              </select>
+            </div>
+            <span class="icon is-small is-left"><i class="fa-solid fa-folder"></i></span>
+          </div>
+        </div>
+
+        <div class="field mb-3" id="quickFolderWrapper">
+          <label class="label is-small mb-1">Quick Select Folder:</label>
+          <div class="tags are-small mb-0" id="quickMoveFolderPills"></div>
+        </div>
+
+        <div class="field mb-3">
+          <label class="label is-small">Target Destination Folder Path:</label>
+          <div class="control has-icons-left">
+            <input class="input is-small font-monospace" id="inputTargetFolder" type="text"
+              placeholder="e.g. movies or images (leave empty for root)" oninput="onTargetFolderInput(this.value)">
+            <span class="icon is-small is-left"><i class="fa-solid fa-folder-open"></i></span>
+          </div>
+          <p class="help">Choose an existing folder above or type any custom / new folder path. Leave empty for root.
+          </p>
+        </div>
+
+        <div id="batchMoveProgressArea" class="mt-3" style="display: none;">
+          <p class="is-size-7 has-text-grey mb-1" id="labelBatchMoveStatus">Moving...</p>
+          <progress class="progress is-info is-small" id="progressBatchMove" value="0" max="100"></progress>
+        </div>
+      </section>
+      <footer class="modal-card-foot" style="gap: 0.75rem;">
+        <button class="button is-info has-text-weight-bold mr-2" id="btnConfirmBatchMove"
+          onclick="executeBatchMove()">Move Files</button>
+        <button class="button" onclick="closeModal('modalBatchMove')">Cancel</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="modal" id="modalSettings">
+    <div class="modal-background" onclick="closeModal('modalSettings')"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title is-size-6"><i class="fa-solid fa-key mr-2 has-text-warning"></i> S3 API Credentials
+          &amp; Connection</p>
+        <button class="delete" aria-label="close" onclick="closeModal('modalSettings')"></button>
+      </header>
+      <section class="modal-card-body">
+        <div class="level is-mobile mb-3 p-2 box">
+          <div class="level-left">
+            <span class="is-size-7 mr-2">S3 Status:</span>
+            <span class="tag is-small is-light" id="settingsS3StatusBadge">
+              <i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Checking...
+            </span>
+          </div>
+          <div class="level-right">
+            <button class="button is-small is-info is-outlined" id="btnTestS3Connection" onclick="testS3Connection()">
+              <i class="fa-solid fa-bolt mr-1"></i> Test Connection
+            </button>
+          </div>
+        </div>
+
+        <div id="settingsTestResult" class="notification is-size-7 p-2 mb-3" style="display: none;"></div>
+
+        <div class="notification is-info is-light is-size-7 p-3 mb-3">
+          <strong>Why S3 keys?</strong> Internet Archive S3 Access &amp; Secret Keys are required to upload, rename, and
+          delete files on your archive.org items.
+          Get your S3 keys at <a href="https://archive.org/account/s3.php"
+            target="_blank"><strong>archive.org/account/s3.php</strong></a>.
+          <br><strong>Privacy:</strong> Keys are stored only in your local browser session and never sent to any
+          external server.
+        </div>
+
+        <div class="field mb-3">
+          <label class="label is-small">S3 Access Key:</label>
+          <div class="field has-addons mb-0">
+            <div class="control has-icons-left is-expanded">
+              <input class="input is-small font-monospace" id="inputAccessKey" type="password"
+                placeholder="e.g. abcd1234efgh5678">
+              <span class="icon is-small is-left"><i class="fa-solid fa-lock"></i></span>
+            </div>
+            <div class="control">
+              <button class="button is-small is-light" type="button" onclick="togglePasswordVisibility('inputAccessKey', this)" title="Show / Hide">
+                <span class="icon is-small"><i class="fa-solid fa-eye"></i></span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="field mb-3">
+          <label class="label is-small">S3 Secret Key:</label>
+          <div class="field has-addons mb-0">
+            <div class="control has-icons-left is-expanded">
+              <input class="input is-small font-monospace" id="inputSecretKey" type="password"
+                placeholder="e.g. ijkl9012mnop3456">
+              <span class="icon is-small is-left"><i class="fa-solid fa-key"></i></span>
+            </div>
+            <div class="control">
+              <button class="button is-small is-light" type="button" onclick="togglePasswordVisibility('inputSecretKey', this)" title="Show / Hide">
+                <span class="icon is-small"><i class="fa-solid fa-eye"></i></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <footer class="modal-card-foot" style="gap: 0.75rem;">
+        <button class="button is-primary has-text-weight-bold mr-2" onclick="saveSettings()">Save &amp; Connect</button>
+        <button class="button" onclick="closeModal('modalSettings')">Close</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="modal" id="modalCatalogTasks">
+    <div class="modal-background" onclick="closeModal('modalCatalogTasks')"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title is-size-6"><i class="fa-solid fa-list-check mr-2 has-text-info"></i> Internet Archive
+          Tasks</p>
+        <button class="delete" aria-label="close" onclick="closeModal('modalCatalogTasks')"></button>
+      </header>
+      <section class="modal-card-body">
+        <div class="level is-mobile mb-2">
+          <div class="level-left">
+            <span class="is-size-7 has-text-grey">Item: <strong id="taskModalItemName">archive-item</strong></span>
+          </div>
+          <div class="level-right">
+            <button class="button is-small is-ghost" onclick="fetchCatalogTasks()">
+              <i class="fa-solid fa-rotate-right mr-1"></i> Refresh
+            </button>
+          </div>
+        </div>
+        <div class="box p-3 mb-0" id="catalogTasksBody" style="max-height: 280px; overflow-y: auto;">
+          <div class="has-text-centered p-4 has-text-grey">Checking tasks&hellip;</div>
+        </div>
+      </section>
+      <footer class="modal-card-foot" style="gap: 0.75rem;">
+        <button class="button" onclick="closeModal('modalCatalogTasks')">Close</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="app.js?v=20260923d"></script>
+</body>
+
+</html>
